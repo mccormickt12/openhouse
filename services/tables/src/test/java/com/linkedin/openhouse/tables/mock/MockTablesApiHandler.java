@@ -14,6 +14,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableAccessTokenResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
@@ -185,6 +186,12 @@ public class MockTablesApiHandler implements TablesApiHandler {
       default:
         return null;
     }
+  }
+
+  @Override
+  public ApiResponse<GetTableAccessTokenResponseBody> getTableAccessToken(
+      String databaseId, String tableId, String actingPrincipal) {
+    return null;
   }
 
   private void throwTableException(String tableId) {

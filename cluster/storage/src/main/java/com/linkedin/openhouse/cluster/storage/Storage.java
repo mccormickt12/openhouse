@@ -70,4 +70,12 @@ public interface Storage {
    */
   String allocateTableLocation(
       String databaseId, String tableId, String tableUUID, String tableCreator);
+
+  /**
+   * Returns an access token for the
+   *
+   * @param tableLocation
+   * @return
+   */
+  String getAccessTokenForTable(String tableLocation);
 }

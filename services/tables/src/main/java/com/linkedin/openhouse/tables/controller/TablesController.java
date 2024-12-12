@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableAccessTokenResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import io.swagger.v3.oas.annotations.Operation;
@@ -288,6 +289,38 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAclPoliciesResponseBody> apiResponse =
         tablesApiHandler.getAclPoliciesForUserPrincipal(
             databaseId, tableId, extractAuthenticatedUserPrincipal(), principal);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Get Access Credentials/Tokens to Read Data in Table in a Database",
+      description =
+          "Returns the Access Credentials/Tokens which have access to the Table resource identified by tableId in the "
+              + "database identified by databaseId.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Table GET: OK"),
+        @ApiResponse(responseCode = "401", description = "Table GET: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Table GET: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Table GET: NOT_FOUND")
+      })
+  @GetMapping(
+      value = {
+        "/v0/databases/{databaseId}/tables/{tableId}/access",
+        "/v1/databases/{databaseId}/tables/{tableId}/access"
+      },
+      produces = {"application/json"})
+  public ResponseEntity<GetTableAccessTokenResponseBody> getTableAccessToken(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetTableAccessTokenResponseBody>
+        apiResponse =
+            tablesApiHandler.getTableAccessToken(
+                databaseId, tableId, extractAuthenticatedUserPrincipal());
+
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

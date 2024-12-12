@@ -11,6 +11,7 @@ import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageEx
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
 import com.linkedin.openhouse.javaclient.mapper.SparkMapper;
+import com.linkedin.openhouse.javaclient.s3.S3OpenHouseAwsClientProvider;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
@@ -19,12 +20,14 @@ import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetTableAccessTokenResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
 import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLException;
@@ -42,6 +45,7 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.Transactions;
+import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -235,9 +239,57 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   @Override
   public TableOperations newTableOps(TableIdentifier tableIdentifier) {
+    System.out.println("I am doing some testing, please work");
+
+    for (Map.Entry<String, String> entry : properties.entrySet()) {
+      System.out.println("Properties Entry: '" + entry.getKey() + "' '" + entry.getValue() + "'");
+    }
+
+    Map<String, String> propertiesCopy = properties.entrySet().stream()
+        .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue()));
+
+    if ("true".equals(properties.getOrDefault("use-data-access-token", "false"))) {
+//      Implementation 1: Overwrite the S3 Credentials.
+//
+//      System.out.println("Data access token is fetched");
+//      Optional<String> accessToken =
+//          tableApi
+//              .getTableAccessTokenV0(tableIdentifier.namespace().toString(), tableIdentifier.name())
+//              .mapNotNull(GetTableAccessTokenResponseBody::getAccessToken)
+//              .blockOptional();
+//      if (accessToken.isPresent()) {
+//        String accessTokenStr = accessToken.get();
+//        System.out.println("Access token fetched: " + accessTokenStr);
+//        // [0]=Access Key ID, [1]=Secret
+//        String[] accessTokenParts = accessTokenStr.split("\\.");
+//        System.out.println("Access token split fetched: " + accessTokenParts);
+//        propertiesCopy.put("s3.access-key-id", accessTokenParts[0]);
+//        propertiesCopy.put("s3.secret-access-key", accessTokenParts[1]);
+//      } else {
+//        System.out.println("Access token fetched cannot be fetched.");
+//
+//      }
+
+//      Implementation 2: Use a new S3 CredentialProvider for the AWS Client
+//
+
+      propertiesCopy.put("db", tableIdentifier.namespace().toString());
+      propertiesCopy.put("table", tableIdentifier.name());
+      propertiesCopy.put("client.assume-role.arn", "test");
+      propertiesCopy.put("client.assume-role.region", "test");
+      propertiesCopy.put(AwsProperties.CLIENT_FACTORY, S3OpenHouseAwsClientProvider.class.getName());
+
+    } else {
+      System.out.println("Data access token is not fetched");
+    }
+
+    for (Map.Entry<String, String> entry : propertiesCopy.entrySet()) {
+      System.out.println("New Copied Properties Entry: '" + entry.getKey() + "' '" + entry.getValue() + "'");
+    }
+
     return OpenHouseTableOperations.builder()
         .tableIdentifier(tableIdentifier)
-        .fileIO(fileIO)
+        .fileIO(loadFileIO(propertiesCopy))
         .tableApi(tableApi)
         .snapshotApi(snapshotApi)
         .cluster(cluster)

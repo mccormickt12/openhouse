@@ -93,4 +93,7 @@ public interface TablesService {
    */
   List<AclPolicy> getAclPolicies(
       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
+
+  /** Get STS Access Token for this tableId */
+  String getTableAccessToken(String databaseId, String tableId, String actingPrincipal);
 }

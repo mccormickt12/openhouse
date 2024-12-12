@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableAccessTokenResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
@@ -137,6 +138,19 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
                     tableService.getAclPolicies(databaseId, tableId, actingPrincipal, userPrincipal)
                         .stream()
                         .collect(Collectors.toList()))
+                .build())
+        .build();
+  }
+
+  @Override
+  public ApiResponse<GetTableAccessTokenResponseBody> getTableAccessToken(
+      String databaseId, String tableId, String actingPrincipal) {
+
+    return ApiResponse.<GetTableAccessTokenResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            GetTableAccessTokenResponseBody.builder()
+                .accessToken(tableService.getTableAccessToken(databaseId, tableId, actingPrincipal))
                 .build())
         .build();
   }

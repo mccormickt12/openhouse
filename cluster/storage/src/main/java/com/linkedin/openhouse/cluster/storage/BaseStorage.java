@@ -76,4 +76,9 @@ public abstract class BaseStorage implements Storage {
         .normalize()
         .toString();
   }
+
+  @Override
+  public String getAccessTokenForTable(String tableLocation) {
+    return "admin.password";
+  }
 }

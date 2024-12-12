@@ -5,6 +5,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableAccessTokenResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 
 /**
@@ -108,4 +109,18 @@ public interface TablesApiHandler {
    */
   ApiResponse<GetAclPoliciesResponseBody> getAclPoliciesForUserPrincipal(
       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
+
+  /**
+   * Function to get Access Tokens for a given Table Resource identified by tableId in a given
+   * databaseId. If the underlying data store backing the tableId does not support Access Tokens,
+   * nothing will be returned.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal
+   * @return an access token to read data for the tableId if supported by the table's underlying
+   *     data storage.
+   */
+  ApiResponse<GetTableAccessTokenResponseBody> getTableAccessToken(
+      String databaseId, String tableId, String actingPrincipal);
 }

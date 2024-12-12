@@ -11,6 +11,7 @@ import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageE
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.client.model.GetTableAccessTokenResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
@@ -92,10 +93,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
+
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
+
     super.refreshFromMetadataLocation(tableLocation.orElse(null));
     log.debug("Calling doRefresh succeeded");
   }

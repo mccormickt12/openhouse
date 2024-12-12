@@ -1,0 +1,523 @@
+diff --git a/cluster/storage/src/main/java/com/linkedin/openhouse/cluster/storage/BaseStorage.java b/cluster/storage/src/main/java/com/linkedin/openhouse/cluster/storage/BaseStorage.java
+index 20443d1..29977b7 100644
+--- a/cluster/storage/src/main/java/com/linkedin/openhouse/cluster/storage/BaseStorage.java
++++ b/cluster/storage/src/main/java/com/linkedin/openhouse/cluster/storage/BaseStorage.java
+@@ -76,4 +76,9 @@ public abstract class BaseStorage implements Storage {
+         .normalize()
+         .toString();
+   }
++
++  @Override
++  public String getAccessTokenForTable(String tableLocation) {
++    return "admin.password";
++  }
+ }
+diff --git a/cluster/storage/src/main/java/com/linkedin/openhouse/cluster/storage/Storage.java b/cluster/storage/src/main/java/com/linkedin/openhouse/cluster/storage/Storage.java
+index 7f78b6d..ec5f9d9 100644
+--- a/cluster/storage/src/main/java/com/linkedin/openhouse/cluster/storage/Storage.java
++++ b/cluster/storage/src/main/java/com/linkedin/openhouse/cluster/storage/Storage.java
+@@ -70,4 +70,12 @@ public interface Storage {
+    */
+   String allocateTableLocation(
+       String databaseId, String tableId, String tableUUID, String tableCreator);
++
++  /**
++   * Returns an access token for the
++   *
++   * @param tableLocation
++   * @return
++   */
++  String getAccessTokenForTable(String tableLocation);
+ }
+diff --git a/integrations/java/openhouse-java-runtime/build.gradle b/integrations/java/openhouse-java-runtime/build.gradle
+index 238dffd..dc2bdf6 100644
+--- a/integrations/java/openhouse-java-runtime/build.gradle
++++ b/integrations/java/openhouse-java-runtime/build.gradle
+@@ -31,6 +31,9 @@ dependencies {
+   compileOnly("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
+   compileOnly ("org.springframework.boot:spring-boot-starter-webflux:" + springVersion)
+ 
++  compileOnly("software.amazon.awssdk:s3:2.20.18")
++  compileOnly("org.apache.iceberg:iceberg-aws:" + icebergVersion)
++
+   implementation 'org.apache.commons:commons-lang3:3.12.0'
+   fatJarPackagedDependencies(project(':client:secureclient'))
+   implementation("org.apache.iceberg:iceberg-core:" + icebergVersion)
+diff --git a/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/OpenHouseCatalog.java b/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/OpenHouseCatalog.java
+index 3d75a86..25bbc03 100644
+--- a/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/OpenHouseCatalog.java
++++ b/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/OpenHouseCatalog.java
+@@ -11,6 +11,7 @@ import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageEx
+ import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
+ import com.linkedin.openhouse.javaclient.mapper.Privileges;
+ import com.linkedin.openhouse.javaclient.mapper.SparkMapper;
++import com.linkedin.openhouse.javaclient.s3.S3OpenHouseAwsClientProvider;
+ import com.linkedin.openhouse.tables.client.api.DatabaseApi;
+ import com.linkedin.openhouse.tables.client.api.SnapshotApi;
+ import com.linkedin.openhouse.tables.client.api.TableApi;
+@@ -19,12 +20,14 @@ import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
+ import com.linkedin.openhouse.tables.client.model.GetAclPoliciesResponseBody;
+ import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
+ import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
++import com.linkedin.openhouse.tables.client.model.GetTableAccessTokenResponseBody;
+ import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+ import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
+ import java.net.MalformedURLException;
+ import java.util.Collections;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Optional;
+ import java.util.Set;
+ import java.util.stream.Collectors;
+ import javax.net.ssl.SSLException;
+@@ -42,6 +45,7 @@ import org.apache.iceberg.TableMetadata;
+ import org.apache.iceberg.TableOperations;
+ import org.apache.iceberg.Transaction;
+ import org.apache.iceberg.Transactions;
++import org.apache.iceberg.aws.AwsProperties;
+ import org.apache.iceberg.catalog.Namespace;
+ import org.apache.iceberg.catalog.SupportsNamespaces;
+ import org.apache.iceberg.catalog.TableIdentifier;
+@@ -235,9 +239,57 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
+ 
+   @Override
+   public TableOperations newTableOps(TableIdentifier tableIdentifier) {
++    System.out.println("I am doing some testing, please work");
++
++    for (Map.Entry<String, String> entry : properties.entrySet()) {
++      System.out.println("Properties Entry: '" + entry.getKey() + "' '" + entry.getValue() + "'");
++    }
++
++    Map<String, String> propertiesCopy = properties.entrySet().stream()
++        .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue()));
++
++    if ("true".equals(properties.getOrDefault("use-data-access-token", "false"))) {
++//      Implementation 1: Overwrite the S3 Credentials.
++//
++//      System.out.println("Data access token is fetched");
++//      Optional<String> accessToken =
++//          tableApi
++//              .getTableAccessTokenV0(tableIdentifier.namespace().toString(), tableIdentifier.name())
++//              .mapNotNull(GetTableAccessTokenResponseBody::getAccessToken)
++//              .blockOptional();
++//      if (accessToken.isPresent()) {
++//        String accessTokenStr = accessToken.get();
++//        System.out.println("Access token fetched: " + accessTokenStr);
++//        // [0]=Access Key ID, [1]=Secret
++//        String[] accessTokenParts = accessTokenStr.split("\\.");
++//        System.out.println("Access token split fetched: " + accessTokenParts);
++//        propertiesCopy.put("s3.access-key-id", accessTokenParts[0]);
++//        propertiesCopy.put("s3.secret-access-key", accessTokenParts[1]);
++//      } else {
++//        System.out.println("Access token fetched cannot be fetched.");
++//
++//      }
++
++//      Implementation 2: Use a new S3 CredentialProvider for the AWS Client
++//
++
++      propertiesCopy.put("db", tableIdentifier.namespace().toString());
++      propertiesCopy.put("table", tableIdentifier.name());
++      propertiesCopy.put("client.assume-role.arn", "test");
++      propertiesCopy.put("client.assume-role.region", "test");
++      propertiesCopy.put(AwsProperties.CLIENT_FACTORY, S3OpenHouseAwsClientProvider.class.getName());
++
++    } else {
++      System.out.println("Data access token is not fetched");
++    }
++
++    for (Map.Entry<String, String> entry : propertiesCopy.entrySet()) {
++      System.out.println("New Copied Properties Entry: '" + entry.getKey() + "' '" + entry.getValue() + "'");
++    }
++
+     return OpenHouseTableOperations.builder()
+         .tableIdentifier(tableIdentifier)
+-        .fileIO(fileIO)
++        .fileIO(loadFileIO(propertiesCopy))
+         .tableApi(tableApi)
+         .snapshotApi(snapshotApi)
+         .cluster(cluster)
+diff --git a/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/OpenHouseTableOperations.java b/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/OpenHouseTableOperations.java
+index e79cc4e..781399a 100644
+--- a/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/OpenHouseTableOperations.java
++++ b/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/OpenHouseTableOperations.java
+@@ -11,6 +11,7 @@ import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageE
+ import com.linkedin.openhouse.tables.client.api.SnapshotApi;
+ import com.linkedin.openhouse.tables.client.api.TableApi;
+ import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
++import com.linkedin.openhouse.tables.client.model.GetTableAccessTokenResponseBody;
+ import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+ import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
+ import com.linkedin.openhouse.tables.client.model.Policies;
+@@ -92,10 +93,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
+                 WebClientRequestException.class,
+                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
+             .blockOptional();
++
+     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
+       throw new NoSuchTableException(
+           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
+     }
++
+     super.refreshFromMetadataLocation(tableLocation.orElse(null));
+     log.debug("Calling doRefresh succeeded");
+   }
+diff --git a/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/s3/S3OpenHouseAwsClientProvider.java b/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/s3/S3OpenHouseAwsClientProvider.java
+new file mode 100644
+index 0000000..c6cf2b5
+--- /dev/null
++++ b/integrations/java/openhouse-java-runtime/src/main/java/com/linkedin/openhouse/javaclient/s3/S3OpenHouseAwsClientProvider.java
+@@ -0,0 +1,131 @@
++package com.linkedin.openhouse.javaclient.s3;
++
++import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
++import com.linkedin.openhouse.tables.client.api.TableApi;
++import com.linkedin.openhouse.tables.client.model.GetTableAccessTokenResponseBody;
++import java.net.InetAddress;
++import java.net.MalformedURLException;
++import java.util.Map;
++import java.util.Optional;
++import javax.net.ssl.SSLException;
++import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
++import org.apache.iceberg.aws.AwsProperties;
++import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
++import software.amazon.awssdk.auth.credentials.AwsCredentials;
++import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
++import software.amazon.awssdk.services.s3.S3Client;
++
++
++public class S3OpenHouseAwsClientProvider extends AssumeRoleAwsClientFactory {
++
++  public static final String OH_S3_PROVIDER_URI_CONFIG = "uri";
++
++  public static final String OH_S3_PROVIDER_TRUST_STORE_CONFIG = "trust-store";
++
++  public static final String OH_S3_PROVIDER_AUTH_TOKEN = "auth-token";
++
++  public static final String OH_S3_PROVIDER_DB = "db";
++
++  public static final String OH_S3_PROVIDER_TABLE = "table";
++
++  AwsProperties awsProperties;
++
++  Map<String, String> properties;
++
++  @Override
++  public S3Client s3() {
++
++    String truststore = properties.getOrDefault(OH_S3_PROVIDER_TRUST_STORE_CONFIG, "");
++    String token = properties.getOrDefault(OH_S3_PROVIDER_AUTH_TOKEN, null);
++    String uri = properties.getOrDefault(OH_S3_PROVIDER_URI_CONFIG, "http://localhost:443/");
++    String db = properties.get(OH_S3_PROVIDER_DB);
++    String table = properties.get(OH_S3_PROVIDER_TABLE);
++
++    try {
++      TableApi tableApi = new TableApi(TablesApiClientFactory.getInstance().createApiClient(uri, token, truststore));
++
++      System.out.println("S3OpenHouseAwsClientProvider is being created with "
++          + truststore + " " + token + " " + uri + " " + db + " " + table);
++
++      return S3Client.builder()
++          .applyMutation(awsProperties::applyHttpClientConfigurations)
++          .applyMutation(awsProperties::applyS3EndpointConfigurations)
++          .applyMutation(awsProperties::applyS3ServiceConfigurations)
++          .applyMutation(awsProperties::applyS3SignerConfiguration)
++          .credentialsProvider(new BetterS3OpenHouseAwsClientProvider(db, table, tableApi))
++          .build();
++
++    } catch (MalformedURLException | SSLException e) {
++      throw new RuntimeException(e);
++    }
++  }
++
++  public void initialize(Map<String, String> properties) {
++    this.awsProperties = new AwsProperties(properties);
++    this.properties = properties;
++
++    String truststore = properties.getOrDefault(OH_S3_PROVIDER_TRUST_STORE_CONFIG, "");
++    String token = properties.getOrDefault(OH_S3_PROVIDER_AUTH_TOKEN, null);
++    String uri = properties.getOrDefault(OH_S3_PROVIDER_URI_CONFIG, "http://localhost:443/");
++    String db = properties.get(OH_S3_PROVIDER_DB);
++    String table = properties.get(OH_S3_PROVIDER_TABLE);
++
++    if (db == null || db.isEmpty() || table == null || table.isEmpty()) {
++      throw new RuntimeException("bad db or table");
++    }
++
++    super.initialize(properties);
++  }
++
++  static class BetterS3OpenHouseAwsClientProvider implements AwsCredentialsProvider {
++
++    private final String db;
++
++    private final String table;
++
++    private final TableApi tableApi;
++
++    private String cacheCredential;
++
++    public BetterS3OpenHouseAwsClientProvider(
++        String db,
++        String table,
++        TableApi tableApi) {
++      this.db = db;
++      this.table = table;
++      this.tableApi = tableApi;
++    }
++
++    @Override
++    public AwsCredentials resolveCredentials() {
++      if (cacheCredential == null || cacheCredential.isEmpty()) {
++        System.out.println("Data access token is fetched");
++
++        Optional<String> accessToken =
++            tableApi
++                .getTableAccessTokenV0(db, table)
++                .mapNotNull(GetTableAccessTokenResponseBody::getAccessToken)
++                .blockOptional();
++
++        String accessTokenStr = accessToken.get();
++        cacheCredential = accessTokenStr;
++        try {
++          System.out.println("Access token fetched: " + accessTokenStr);
++          System.out.println("Print host name: " + InetAddress.getLocalHost().getHostName());
++        } catch (Exception e) {
++          System.out.println("Failed to read host name with: " + e.getMessage());
++        }
++      } else {
++        System.out.println("Data access token is cached");
++      }
++      // [0]=Access Key ID, [1]=Secret
++      String[] accessTokenParts = cacheCredential.split("\\.");
++      System.out.println("Access token split fetched: " + accessTokenParts);
++
++      return AwsBasicCredentials.create(accessTokenParts[0], accessTokenParts[1]);
++    }
++  }
++
++
++
++}
+diff --git a/services/tables/src/main/java/com/linkedin/openhouse/tables/api/handler/TablesApiHandler.java b/services/tables/src/main/java/com/linkedin/openhouse/tables/api/handler/TablesApiHandler.java
+index 9906d9f..0bea852 100644
+--- a/services/tables/src/main/java/com/linkedin/openhouse/tables/api/handler/TablesApiHandler.java
++++ b/services/tables/src/main/java/com/linkedin/openhouse/tables/api/handler/TablesApiHandler.java
+@@ -5,6 +5,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
+ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
++import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableAccessTokenResponseBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+ 
+ /**
+@@ -108,4 +109,18 @@ public interface TablesApiHandler {
+    */
+   ApiResponse<GetAclPoliciesResponseBody> getAclPoliciesForUserPrincipal(
+       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
++
++  /**
++   * Function to get Access Tokens for a given Table Resource identified by tableId in a given
++   * databaseId. If the underlying data store backing the tableId does not support Access Tokens,
++   * nothing will be returned.
++   *
++   * @param databaseId
++   * @param tableId
++   * @param actingPrincipal
++   * @return an access token to read data for the tableId if supported by the table's underlying
++   *     data storage.
++   */
++  ApiResponse<GetTableAccessTokenResponseBody> getTableAccessToken(
++      String databaseId, String tableId, String actingPrincipal);
+ }
+diff --git a/services/tables/src/main/java/com/linkedin/openhouse/tables/api/handler/impl/OpenHouseTablesApiHandler.java b/services/tables/src/main/java/com/linkedin/openhouse/tables/api/handler/impl/OpenHouseTablesApiHandler.java
+index 12cdd45..9b60892 100644
+--- a/services/tables/src/main/java/com/linkedin/openhouse/tables/api/handler/impl/OpenHouseTablesApiHandler.java
++++ b/services/tables/src/main/java/com/linkedin/openhouse/tables/api/handler/impl/OpenHouseTablesApiHandler.java
+@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
+ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
++import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableAccessTokenResponseBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+ import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
+ import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
+@@ -140,4 +141,17 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
+                 .build())
+         .build();
+   }
++
++  @Override
++  public ApiResponse<GetTableAccessTokenResponseBody> getTableAccessToken(
++      String databaseId, String tableId, String actingPrincipal) {
++
++    return ApiResponse.<GetTableAccessTokenResponseBody>builder()
++        .httpStatus(HttpStatus.OK)
++        .responseBody(
++            GetTableAccessTokenResponseBody.builder()
++                .accessToken(tableService.getTableAccessToken(databaseId, tableId, actingPrincipal))
++                .build())
++        .build();
++  }
+ }
+diff --git a/services/tables/src/main/java/com/linkedin/openhouse/tables/api/spec/v0/response/GetTableAccessTokenResponseBody.java b/services/tables/src/main/java/com/linkedin/openhouse/tables/api/spec/v0/response/GetTableAccessTokenResponseBody.java
+new file mode 100644
+index 0000000..94eb651
+--- /dev/null
++++ b/services/tables/src/main/java/com/linkedin/openhouse/tables/api/spec/v0/response/GetTableAccessTokenResponseBody.java
+@@ -0,0 +1,20 @@
++package com.linkedin.openhouse.tables.api.spec.v0.response;
++
++import com.fasterxml.jackson.annotation.JsonProperty;
++import com.google.gson.Gson;
++import io.swagger.v3.oas.annotations.media.Schema;
++import lombok.Builder;
++import lombok.Value;
++
++@Builder(toBuilder = true)
++@Value
++public class GetTableAccessTokenResponseBody {
++
++  @Schema(description = "JWT Access Token String", example = "header.payload.signature")
++  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
++  private String accessToken;
++
++  public String toJson() {
++    return new Gson().toJson(this);
++  }
++}
+diff --git a/services/tables/src/main/java/com/linkedin/openhouse/tables/controller/TablesController.java b/services/tables/src/main/java/com/linkedin/openhouse/tables/controller/TablesController.java
+index 1b7fdc8..a3a5beb 100644
+--- a/services/tables/src/main/java/com/linkedin/openhouse/tables/controller/TablesController.java
++++ b/services/tables/src/main/java/com/linkedin/openhouse/tables/controller/TablesController.java
+@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
+ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
++import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableAccessTokenResponseBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+ import com.linkedin.openhouse.tables.authorization.Privileges;
+ import io.swagger.v3.oas.annotations.Operation;
+@@ -291,4 +292,36 @@ public class TablesController {
+     return new ResponseEntity<>(
+         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+   }
++
++  @Operation(
++      summary = "Get Access Credentials/Tokens to Read Data in Table in a Database",
++      description =
++          "Returns the Access Credentials/Tokens which have access to the Table resource identified by tableId in the "
++              + "database identified by databaseId.",
++      tags = {"Table"})
++  @ApiResponses(
++      value = {
++        @ApiResponse(responseCode = "200", description = "Table GET: OK"),
++        @ApiResponse(responseCode = "401", description = "Table GET: UNAUTHORIZED"),
++        @ApiResponse(responseCode = "403", description = "Table GET: FORBIDDEN"),
++        @ApiResponse(responseCode = "404", description = "Table GET: NOT_FOUND")
++      })
++  @GetMapping(
++      value = {
++        "/v0/databases/{databaseId}/tables/{tableId}/access",
++        "/v1/databases/{databaseId}/tables/{tableId}/access"
++      },
++      produces = {"application/json"})
++  public ResponseEntity<GetTableAccessTokenResponseBody> getTableAccessToken(
++      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
++      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
++
++    com.linkedin.openhouse.common.api.spec.ApiResponse<GetTableAccessTokenResponseBody>
++        apiResponse =
++            tablesApiHandler.getTableAccessToken(
++                databaseId, tableId, extractAuthenticatedUserPrincipal());
++
++    return new ResponseEntity<>(
++        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
++  }
+ }
+diff --git a/services/tables/src/main/java/com/linkedin/openhouse/tables/services/TablesService.java b/services/tables/src/main/java/com/linkedin/openhouse/tables/services/TablesService.java
+index b2576b7..f27d91e 100644
+--- a/services/tables/src/main/java/com/linkedin/openhouse/tables/services/TablesService.java
++++ b/services/tables/src/main/java/com/linkedin/openhouse/tables/services/TablesService.java
+@@ -93,4 +93,7 @@ public interface TablesService {
+    */
+   List<AclPolicy> getAclPolicies(
+       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
++
++  /** Get STS Access Token for this tableId */
++  String getTableAccessToken(String databaseId, String tableId, String actingPrincipal);
+ }
+diff --git a/services/tables/src/main/java/com/linkedin/openhouse/tables/services/TablesServiceImpl.java b/services/tables/src/main/java/com/linkedin/openhouse/tables/services/TablesServiceImpl.java
+index 9d09967..3633aa9 100644
+--- a/services/tables/src/main/java/com/linkedin/openhouse/tables/services/TablesServiceImpl.java
++++ b/services/tables/src/main/java/com/linkedin/openhouse/tables/services/TablesServiceImpl.java
+@@ -1,5 +1,8 @@
+ package com.linkedin.openhouse.tables.services;
+ 
++import com.linkedin.openhouse.cluster.storage.Storage;
++import com.linkedin.openhouse.cluster.storage.StorageManager;
++import com.linkedin.openhouse.cluster.storage.StorageType;
+ import com.linkedin.openhouse.common.api.spec.TableUri;
+ import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+ import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+@@ -18,6 +21,7 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
+ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+ import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
+ import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
++import java.net.URI;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Optional;
+@@ -41,6 +45,9 @@ public class TablesServiceImpl implements TablesService {
+   @Autowired AuthorizationHandler authorizationHandler;
+ 
+   @Autowired TableUUIDGenerator tableUUIDGenerator;
++
++  @Autowired StorageManager storageManager;
++
+   /**
+    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
+    *
+@@ -211,6 +218,17 @@ public class TablesServiceImpl implements TablesService {
+     return authorizationHandler.listAclPolicies(tableDto, userPrincipal);
+   }
+ 
++  @Override
++  public String getTableAccessToken(String databaseId, String tableId, String actingPrincipal) {
++    TableDto tableDto = getTableOrThrow(databaseId, tableId);
++    StorageType.Type tableStorageType =
++        new StorageType().fromString(URI.create(tableDto.getTableLocation()).getScheme());
++
++    Storage storage = storageManager.getStorage(tableStorageType);
++
++    return storage.getAccessTokenForTable(tableDto.getTableLocation());
++  }
++
+   /** Whether sharing has been enabled for the table denoted by tableDto. */
+   private boolean isTableSharingEnabled(TableDto tableDto) {
+     return (tableDto.getPolicies() != null && tableDto.getPolicies().isSharingEnabled());
+diff --git a/services/tables/src/test/java/com/linkedin/openhouse/tables/mock/MockTablesApiHandler.java b/services/tables/src/test/java/com/linkedin/openhouse/tables/mock/MockTablesApiHandler.java
+index eb23cae..550f8b8 100644
+--- a/services/tables/src/test/java/com/linkedin/openhouse/tables/mock/MockTablesApiHandler.java
++++ b/services/tables/src/test/java/com/linkedin/openhouse/tables/mock/MockTablesApiHandler.java
+@@ -14,6 +14,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
+ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
++import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableAccessTokenResponseBody;
+ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+ import org.springframework.context.annotation.Primary;
+ import org.springframework.http.HttpStatus;
+@@ -187,6 +188,12 @@ public class MockTablesApiHandler implements TablesApiHandler {
+     }
+   }
+ 
++  @Override
++  public ApiResponse<GetTableAccessTokenResponseBody> getTableAccessToken(
++      String databaseId, String tableId, String actingPrincipal) {
++    return null;
++  }
++
+   private void throwTableException(String tableId) {
+     switch (tableId) {
+       case "entityconcurrentmodificationexception":
